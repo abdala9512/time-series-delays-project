@@ -21,7 +21,13 @@ test_data <- read_excel("data/citaschallenge.xlsx", sheet = "test2013")
 
 
 calculateChallengeMetric <- function(obj){
+  cancelacion = obj[1] * 0.3
+  incumplimiento = obj[3] * 0.5
+  cumplimiento   = obj[2] * 0.2
 
+  weighted_metric <- cancelacion + incumplimiento + cumplimiento
+  message("F ponderado: ")
+  return(weighted_metric %>%  as.numeric())
 }
 
 # Preparacion de datos ----------------------------------------------------
