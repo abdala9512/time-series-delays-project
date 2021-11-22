@@ -20,6 +20,9 @@ train_data <- read_excel("data/citaschallenge.xlsx", sheet = "train2013")
 test_data <- read_excel("data/citaschallenge.xlsx", sheet = "test2013")
 
 
+calculateChallengeMetric <- function(obj){
+
+}
 
 # Preparacion de datos ----------------------------------------------------
 
@@ -132,25 +135,53 @@ train_data %>%
 
 # Porcentaje de cancelaciones, incumplimiento y cumplimiento por especialidad
 
-specialization_percentages <- train_data %>%
-  group_by(ESPECIALIDAD) %>%
-  mutate(total_citas_especialidad = n()) %>%
-  group_by(ESPECIALIDAD, Estado_Final) %>%
-  summarise(
-    pct = (  n() / total_citas_especialidad ) * 100
+
+calcPercentages <- function(col){
+
+  names_ <-
+    c(
+      paste("pct_cancelacion", col, sep = "_"),
+     # paste("pct_cumplimiento", col, sep = "_"),
+      paste("pct_incumplimiento", col, sep = "_")
+    )
+
+  percentages <- train_data %>%
+    group_by(!!as.name(col)) %>%
+    mutate(total_citas = n()) %>%
+    group_by(!!as.name(col), Estado_Final) %>%
+    summarise(
+      pct = (  n() / total_citas ) * 100
 
     ) %>%
-  distinct() %>%
-  ungroup() %>%
-  spread(key = Estado_Final,value = pct) %>%
-  rename(
-    pct_cancelacion = Cancelada,
-    pct_cumplimiento = Cumplida,
-    pct_incumplimiento = Incumplida
-  ) %>%
-  mutate(
-    pct_cumplimiento = if_else(is.na(pct_cumplimiento), 0 , pct_cumplimiento)
-  )
+    distinct() %>%
+    ungroup() %>%
+    spread(key = Estado_Final,value = pct) %>%
+    rename(
+      pct_cancelacion = Cancelada,
+      pct_cumplimiento = Cumplida,
+      pct_incumplimiento = Incumplida
+    ) %>%
+    mutate(
+      pct_cumplimiento = if_else(is.na(pct_cumplimiento), 0 , pct_cumplimiento),
+      pct_incumplimiento = if_else(is.na(pct_incumplimiento), 0 , pct_incumplimiento),
+      pct_cancelacion = if_else(is.na(pct_cancelacion), 0 , pct_cancelacion)
+    ) %>%
+    select(-pct_cumplimiento) %>%
+    rename_with(
+      ~names_ , c("pct_cancelacion",
+                  #"pct_cumplimiento",
+                  "pct_incumplimiento")
+    )
+
+
+  return(percentages)
+}
+
+specialization_percentages <- calcPercentages("ESPECIALIDAD")
+gender_percentages         <- calcPercentages("GENERO")
+affiliaton_percentages     <- calcPercentages("TIPO_AFILIACION")
+weekday_percentages        <- calcPercentages("dia_semana")
+hour_percentages           <- calcPercentages("Hora")
 
 specialization_percentages %>%
   gather(key = Tipo, value = Porcentaje, -ESPECIALIDAD) %>%
@@ -221,26 +252,30 @@ cat_features <- c("TIPO_AFILIACION", "dia_semana","GENERO")
 normalized_data <-
   train_data %>%
   left_join(specialization_percentages, by = "ESPECIALIDAD") %>%
-  select(
-    TIPO_AFILIACION,
-    Estado_Final,
-    EDAD,
-    Hora,
-    dia_semana,
-    GENERO,
-    pct_cancelacion,
-    pct_cumplimiento,
-    pct_incumplimiento
-  ) %>%
+  left_join(gender_percentages, by = "GENERO") %>%
+  left_join(affiliaton_percentages, by = "TIPO_AFILIACION") %>%
+  left_join(weekday_percentages, by = "dia_semana") %>%
+  left_join(hour_percentages, by = "Hora") %>%
+  # select(
+  #   TIPO_AFILIACION,
+  #   Estado_Final,
+  #   EDAD,
+  #   Hora,
+  #   dia_semana,
+  #   GENERO
+  # ) %>%
  # mutate(Hora = as.character(Hora)) %>%
-  dummy_cols(cat_features) %>%
+  # dummy_cols(cat_features) %>%
   select(
     -c(
       TIPO_AFILIACION,
       dia_semana,
       GENERO,
-      GENERO_MASCULINO,
-      Hora
+      Hora,
+      ESPECIALIDAD,
+      FECHA_CITA,
+      id,
+      ESTAFINAL
     )
   ) %>%
   filter(
@@ -249,6 +284,8 @@ normalized_data <-
   mutate (
     Estado_Final = factor(Estado_Final)
   )
+
+
 
 
 set.seed(1500)
@@ -267,7 +304,7 @@ decisionTree <- rpart(
   formula = Estado_Final ~ .,
   data    = train,
   method  = "class",
- control = list(minsplit = 10, maxdepth = 10, xval = 15)
+  control = list(minbucket=20, cp = 0.00001, minsplit = 5, maxdepth = 6, xval = 10)
 )
 
 rpart.plot(decisionTree)
@@ -283,6 +320,9 @@ dt_predictions <- predict(decisionTree,test, type="class")
 
 conf_matrix <- confusionMatrix(dt_predictions,test$Estado_Final)
 conf_matrix$byClass[,'F1']
+conf_matrix$byClass[,'Precision']
+conf_matrix$byClass[,'Recall']
+
 
 
 # Estimacion por ARboles tipo CHAID ---------------------------------------
