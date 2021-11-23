@@ -41,12 +41,19 @@ train_data %<>%
         ESTAFINAL == 3 ~ "Incumplida"
       ),
     Hora = hour(FECHA_CITA),
-    dia_semana = weekdays(FECHA_CITA)
+    dia_semana = weekdays(FECHA_CITA),
+    especialidad_ajustada =
+      case_when(
+        ESPECIALIDAD %in% c("ORTODONCIA", "ODONTOLOGIA") ~ "SD",
+        ESPECIALIDAD %in% c("MEDICINA GENERAL") ~ "MG",
+        TRUE ~ "ESP"
+      )
+
 
   )
 
 
-# revision Preliminar de los datos ----------------------------------------
+  # revision Preliminar de los datos ----------------------------------------
 
 glimpse(train_data)
 describe(train_data)
@@ -71,8 +78,19 @@ train_data %>%
     title = "Estados finales por género"
   )
 
+# eSPECILIDAD AJSUTADA
 
-#
+train_data %>%
+ggplot(aes(especialidad_ajustada)) +
+  geom_bar(stat = "count", fill = "#396EB0") +
+  facet_grid(~Estado_Final) +
+  custom_style() +
+  labs(
+    title = "Estados finales por especilidad"
+  )
+
+
+ #
 
 train_data %>%
   group_by(Estado_Final, TIPO_AFILIACION) %>%
@@ -188,6 +206,7 @@ gender_percentages         <- calcPercentages("GENERO")
 affiliaton_percentages     <- calcPercentages("TIPO_AFILIACION")
 weekday_percentages        <- calcPercentages("dia_semana")
 hour_percentages           <- calcPercentages("Hora")
+ajd__esp_percentage        <- calcPercentages("especialidad_ajustada")
 
 specialization_percentages %>%
   gather(key = Tipo, value = Porcentaje, -ESPECIALIDAD) %>%
@@ -258,10 +277,11 @@ cat_features <- c("TIPO_AFILIACION", "dia_semana","GENERO")
 normalized_data <-
   train_data %>%
   left_join(specialization_percentages, by = "ESPECIALIDAD") %>%
-  left_join(gender_percentages, by = "GENERO") %>%
+  #left_join(gender_percentages, by = "GENERO") %>%
   left_join(affiliaton_percentages, by = "TIPO_AFILIACION") %>%
   left_join(weekday_percentages, by = "dia_semana") %>%
   left_join(hour_percentages, by = "Hora") %>%
+  left_join(ajd__esp_percentage, by = "especialidad_ajustada") %>%
   # select(
   #   TIPO_AFILIACION,
   #   Estado_Final,
@@ -325,11 +345,15 @@ decisionTree$cptable
 dt_predictions <- predict(decisionTree,test, type="class")
 
 conf_matrix <- confusionMatrix(dt_predictions,test$Estado_Final)
-conf_matrix$byClass[,'F1']
+f1_metrics <- conf_matrix$byClass[,'F1']
+f1_metrics
 conf_matrix$byClass[,'Precision']
 conf_matrix$byClass[,'Recall']
 
 
+# Calculo metrica Challenge
+
+calculateChallengeMetric(f1_metrics)
 
 # Estimacion por ARboles tipo CHAID ---------------------------------------
 
@@ -342,5 +366,52 @@ predictionsCHAID <- predict(chaid_decisionTree, test, type = 'class')
 
 # Optimizaccion de hiperparametros ----------------------------------------
 
+
+# Creamos un dataframe con las posibles combinaciones de hiperparametros
+hyper_grid <- expand.grid(
+  minsplit = seq(15, 30, 1), # poblaciones entre 5 y 20
+  maxdepth = seq(5, 15, 1) #profundidad del arbol entre 8 y 15
+)
+
+
+models <- vector(mode = "list", nrow(hyper_grid))
+
+for (i in 1:nrow(hyper_grid)) {
+
+  # Obtenemos los hiperparametros de la estimación i
+  minsplit <- hyper_grid$minsplit[i]
+  maxdepth <- hyper_grid$maxdepth[i]
+
+  # Entrenamos el modelo
+  models[[i]] <- rpart(
+    formula = Estado_Final ~ .,
+    data    = train,
+    method  = "class",
+    control = list(minsplit = minsplit, maxdepth = maxdepth)
+  )
+}
+
+
+# Creamos una función para extraer el cost complexity de la lis de modelos
+get_cp <- function(x) {
+  min    <- which.min(x$cptable[, "xerror"])
+  cp <- x$cptable[min, "CP"]
+}
+
+# Función para extraer el modelo con el error minimo
+get_min_error <- function(x) {
+  min    <- which.min(x$cptable[, "xerror"])
+  xerror <- x$cptable[min, "xerror"]
+}
+
+
+# Miramos el top 5 de valore minimos
+hyper_grid %>%
+  mutate(
+    cp    = purrr::map_dbl(models, get_cp),
+    error = purrr::map_dbl(models, get_min_error)
+  ) %>%
+  arrange(error) %>%
+  top_n(-5, wt = error)
 # Partir por especialidades medicas, medicina general y odontologia
 
