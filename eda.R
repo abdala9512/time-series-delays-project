@@ -21,7 +21,7 @@ test_data <- read_excel("data/citaschallenge.xlsx", sheet = "test2013")
 
 
 calculateChallengeMetric <- function(obj){
-  cancelacion = obj[1] * 0.3
+  cancelacion = if_else(is.na(obj[1]),0, obj[1] * 0.3)
   incumplimiento = obj[3] * 0.5
   cumplimiento   = obj[2] * 0.2
 
@@ -31,6 +31,23 @@ calculateChallengeMetric <- function(obj){
 }
 
 # Preparacion de datos ----------------------------------------------------
+
+train_data$GENERO <- as.factor(train_data$GENERO)
+train_data$Hora <- as.factor(train_data$Hora)
+train_data$ESTAFINAL <- as.factor(train_data$ESTAFINAL)
+
+
+estadisticas <-  lapply(X = train_data[,c(-6,-5,-2)], FUN = table)
+estadisticas
+
+estadisticas2 <- lapply(X = estadisticas, FUN = prop.table)
+estadisticas2
+
+top <-as.data.frame(prop.table(table(train_data$ESPECIALIDAD)))
+top_n(top,3)
+
+top <-as.data.frame(prop.table(table(train_data$Hora)))
+top_n(top,5)
 
 train_data %<>%
   mutate(
@@ -170,6 +187,7 @@ calcPercentages <- function(col){
     )
 
   percentages <- train_data %>%
+    filter(FECHA_CITA < ymd("2013-11-01")) %>%
     group_by(!!as.name(col)) %>%
     mutate(total_citas = n()) %>%
     group_by(!!as.name(col), Estado_Final) %>%
@@ -281,7 +299,7 @@ normalized_data <-
   left_join(affiliaton_percentages, by = "TIPO_AFILIACION") %>%
   left_join(weekday_percentages, by = "dia_semana") %>%
   left_join(hour_percentages, by = "Hora") %>%
-  left_join(ajd__esp_percentage, by = "especialidad_ajustada") %>%
+  #left_join(ajd__esp_percentage, by = "especialidad_ajustada") %>%
   # select(
   #   TIPO_AFILIACION,
   #   Estado_Final,
@@ -299,9 +317,10 @@ normalized_data <-
       GENERO,
       Hora,
       ESPECIALIDAD,
-      FECHA_CITA,
       id,
-      ESTAFINAL
+      ESTAFINAL,
+      especialidad_ajustada
+
     )
   ) %>%
   filter(
@@ -313,14 +332,15 @@ normalized_data <-
 
 
 
-
 set.seed(1500)
 
 trainIndex <- createDataPartition(normalized_data$Estado_Final, p = .85, list = FALSE, times = 1)
 
 
-train <- normalized_data[ trainIndex,]
-test  <- normalized_data[-trainIndex,]
+#train <- normalized_data[ trainIndex,]
+train <- normalized_data %>% filter(FECHA_CITA < ymd("2013-11-01")) %>% select(-FECHA_CITA)
+#test  <- normalized_data[-trainIndex,]
+test  <- normalized_data %>% filter(FECHA_CITA >= ymd("2013-11-01")) %>% select(-FECHA_CITA)
 
 
 # MODELAMIENTO ------------------------------------------------------------
@@ -330,7 +350,7 @@ decisionTree <- rpart(
   formula = Estado_Final ~ .,
   data    = train,
   method  = "class",
-  control = list(minbucket=20, cp = 0.00001, minsplit = 5, maxdepth = 6, xval = 10)
+  control = list(minbucket=20, cp = 0.00001, minsplit = 5, maxdepth = 4, xval = 10)
 )
 
 rpart.plot(decisionTree)
@@ -352,16 +372,103 @@ conf_matrix$byClass[,'Recall']
 
 
 # Calculo metrica Challenge
-
 calculateChallengeMetric(f1_metrics)
 
-# Estimacion por ARboles tipo CHAID ---------------------------------------
 
-chaid_decisionTree <-ctree(Estado_Final~., data=train)
-plot(chaid_decisionTree)
+# Multiples modelos -------------------------------------------------------
 
-predictionsCHAID <- predict(chaid_decisionTree, test, type = 'class')
+dataset_incumplidos <- rbind(
+  normalized_data %>%
+    filter(Estado_Final == 'Incumplida'),
+  normalized_data %>%
+    filter(Estado_Final == "Cumplida") %>%
+    sample_frac(0.3)
+) %>%
+  mutate(Estado_Final = factor(Estado_Final))
 
+trainIndex <- createDataPartition(dataset_incumplidos$Estado_Final, p = .85, list = FALSE, times = 1)
+
+
+train_incumplidos <- dataset_incumplidos[ trainIndex,]
+test_incumplidos  <- dataset_incumplidos[-trainIndex,]
+
+train_incumplidos <- dataset_incumplidos %>% filter(FECHA_CITA < ymd("2013-11-01")) %>% select(-FECHA_CITA)
+test_incumplidos  <- dataset_incumplidos %>% filter(FECHA_CITA >= ymd("2013-11-01")) %>% select(-FECHA_CITA)
+
+
+decisionTreeUnfulfilled <- rpart(
+  formula = Estado_Final ~ .,
+  data    = train_incumplidos,
+  method  = "class",
+  control = list(minbucket=20, cp = 0.00001, minsplit = 5, maxdepth = 4, xval = 10)
+)
+
+rpart.plot(decisionTreeUnfulfilled)
+
+dt_predictions_incumplidos <- predict(decisionTreeUnfulfilled,test_incumplidos, type="class")
+conf_matrix <- confusionMatrix(dt_predictions_incumplidos,test_incumplidos$Estado_Final)
+conf_matrix$byClass
+
+
+# Cancelados --------------------------------------------------------------
+
+dataset_cancelados <- rbind(
+  normalized_data %>%
+    filter(Estado_Final == 'Cancelada'),
+  normalized_data %>%
+    filter(Estado_Final == "Cumplida") %>%
+    sample_frac(0.3)
+) %>%
+  mutate(Estado_Final = factor(Estado_Final))
+
+trainIndex <- createDataPartition(dataset_cancelados$Estado_Final, p = .85, list = FALSE, times = 1)
+
+
+train_cancelados <- dataset_cancelados[ trainIndex,]
+test_cancelados  <- dataset_cancelados[-trainIndex,]
+
+train_cancelados <- dataset_cancelados %>% filter(FECHA_CITA < ymd("2013-11-01")) %>% select(-FECHA_CITA)
+test_cancelados  <- dataset_cancelados %>% filter(FECHA_CITA >= ymd("2013-11-01")) %>% select(-FECHA_CITA)
+
+
+decisionTreeCancelled <- rpart(
+  formula = Estado_Final ~ .,
+  data    = train_cancelados,
+  method  = "class",
+  control = list(minbucket=20, cp = 0.00001, minsplit = 5, maxdepth = 4, xval = 10)
+)
+
+rpart.plot(decisionTreeCancelled)
+
+dt_predictions_cancelled <- predict(decisionTreeCancelled,test_cancelados, type="class")
+conf_matrix <- confusionMatrix(dt_predictions_cancelled,test_cancelados$Estado_Final)
+f1_metrics <- conf_matrix$byClass
+
+
+# Model mixing ------------------------------------------------------------
+
+
+preds_complete_model <- predict(decisionTree,test)
+preds_cancelled_model <- predict(decisionTreeCancelled,test)
+preds_unfulfilled_model <- predict(decisionTreeUnfulfilled,test)
+
+
+x<-rbind(
+  preds_complete_model %>%  as.data.frame() %>%  mutate(id = row_number()) %>% gather(key = class, value = prob, -id),
+  preds_cancelled_model %>%  as.data.frame()  %>%  mutate(id = row_number()) %>% gather(key = class, value = prob, -id),
+  preds_unfulfilled_model %>%  as.data.frame() %>%  mutate(id = row_number()) %>% gather(key = class, value = prob, -id)
+) %>%
+  group_by(id, class) %>%
+  summarise(prob = mean(prob)) %>%
+  group_by(id) %>%
+  top_n(1) %>%
+  pull(class) %>%  as.factor()
+
+
+conf_matrix <- confusionMatrix(x,test$Estado_Final)
+mixedModelScore <- conf_matrix$byClass[,'F1']
+
+calculateChallengeMetric(mixedModelScore)
 
 
 # Optimizaccion de hiperparametros ----------------------------------------
@@ -414,4 +521,64 @@ hyper_grid %>%
   arrange(error) %>%
   top_n(-5, wt = error)
 # Partir por especialidades medicas, medicina general y odontologia
+
+
+
+
+# Create submission file --------------------------------------------------
+
+
+test_normalized_data <-
+  test_data %>%
+  mutate(
+    Hora = hour(FECHA_CITA),
+    dia_semana = weekdays(FECHA_CITA)
+  ) %>%
+  left_join(specialization_percentages, by = "ESPECIALIDAD") %>%
+  left_join(affiliaton_percentages, by = "TIPO_AFILIACION") %>%
+  left_join(weekday_percentages, by = "dia_semana") %>%
+  left_join(hour_percentages, by = "Hora") %>%
+  select(
+    -c(
+      TIPO_AFILIACION,
+      dia_semana,
+      GENERO,
+      Hora,
+      ESPECIALIDAD,
+      id,
+      FECHA_CITA
+
+    )
+  )
+
+
+TEST_preds_complete_model <- predict(decisionTree,test_normalized_data)
+TEST_preds_cancelled_model <- predict(decisionTreeCancelled,test_normalized_data)
+TEST_preds_unfulfilled_model <- predict(decisionTreeUnfulfilled,test_normalized_data)
+
+submission_df <- test_data %>%
+  select(id)
+
+test_predictions<-rbind(
+  cbind(submission_df, TEST_preds_complete_model %>%  as.data.frame()) %>% gather(key = class, value = prob, -id),
+  cbind(submission_df, TEST_preds_cancelled_model %>%  as.data.frame()) %>% gather(key = class, value = prob, -id),
+  cbind(submission_df, TEST_preds_unfulfilled_model %>%  as.data.frame()) %>% gather(key = class, value = prob, -id)
+) %>%
+  group_by(id, class) %>%
+  summarise(prob = mean(prob)) %>%
+  group_by(id) %>%
+  top_n(1) %>%
+  mutate(
+    ESTAFINAL = case_when(
+      class == "Cancelada" ~ 1,
+      class == "Cumplida" ~ 2,
+      class == "Incumplida"~ 3
+    )
+  ) %>%
+  pull(ESTAFINAL)
+
+
+submission_df$ESTAFINAL = test_predictions
+
+writexl::write_xlsx(submission_df, "data/predicciones.xlsx")
 
