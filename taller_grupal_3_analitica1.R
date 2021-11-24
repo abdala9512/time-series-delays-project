@@ -79,7 +79,7 @@ train_data %<>%
   )
 
 
-  # revision Preliminar de los datos ----------------------------------------
+# revision Preliminar de los datos ----------------------------------------
 
 glimpse(train_data)
 describe(train_data)
@@ -107,7 +107,7 @@ train_data %>%
 # eSPECILIDAD AJSUTADA
 
 train_data %>%
-ggplot(aes(especialidad_ajustada)) +
+  ggplot(aes(especialidad_ajustada)) +
   geom_bar(stat = "count", fill = "#396EB0") +
   facet_grid(~Estado_Final) +
   custom_style() +
@@ -130,7 +130,7 @@ train_data %>%
   )
 
 
- train_data %>%
+train_data %>%
   ggplot(aes(EDAD)) +
   geom_histogram(color = "#ffffff", fill = "#B85252") +
   facet_grid( ~Estado_Final) +
@@ -140,31 +140,31 @@ train_data %>%
   )
 
 
- train_data %>%
-   mutate(Hora = as.factor(Hora)) %>%
-   group_by(Estado_Final, Hora) %>%
-   count() %>%
-   ggplot(aes(x=Hora, fill = Estado_Final, y = n)) +
-   geom_bar(position = "fill", stat = "identity") +
-   scale_fill_viridis(discrete = T) +
-   custom_style() +
-   scale_fill_manual(values= c("#544179", "#32C1CD", "#C85C5C")) +
-   labs(
-     title = "Porcentaje de estados por Hora de cita"
-   )
+train_data %>%
+  mutate(Hora = as.factor(Hora)) %>%
+  group_by(Estado_Final, Hora) %>%
+  count() %>%
+  ggplot(aes(x=Hora, fill = Estado_Final, y = n)) +
+  geom_bar(position = "fill", stat = "identity") +
+  scale_fill_viridis(discrete = T) +
+  custom_style() +
+  scale_fill_manual(values= c("#544179", "#32C1CD", "#C85C5C")) +
+  labs(
+    title = "Porcentaje de estados por Hora de cita"
+  )
 
- train_data %>%
-   mutate(dia_semana = as.factor(dia_semana)) %>%
-   group_by(Estado_Final, dia_semana) %>%
-   count() %>%
-   ggplot(aes(x=dia_semana, fill = Estado_Final, y = n)) +
-   geom_bar(position = "fill", stat = "identity") +
-   scale_fill_viridis(discrete = T) +
-   custom_style() +
-   scale_fill_manual(values= c("#77E4D4", "#96C7C1", "#678983")) +
-   labs(
-     title = "Porcentaje de estados por dia de la semana"
-   )
+train_data %>%
+  mutate(dia_semana = as.factor(dia_semana)) %>%
+  group_by(Estado_Final, dia_semana) %>%
+  count() %>%
+  ggplot(aes(x=dia_semana, fill = Estado_Final, y = n)) +
+  geom_bar(position = "fill", stat = "identity") +
+  scale_fill_viridis(discrete = T) +
+  custom_style() +
+  scale_fill_manual(values= c("#77E4D4", "#96C7C1", "#678983")) +
+  labs(
+    title = "Porcentaje de estados por dia de la semana"
+  )
 
 
 # Citas ´por especialidad
